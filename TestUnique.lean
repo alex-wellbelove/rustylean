@@ -109,8 +109,10 @@ def twoClean : IO Unit := do
 -- Borderline: documents analysis behavior and known gaps
 -- ============================================================================
 
--- B1: Alias with conditional — simp eliminates the alias, each branch
--- uses the resource once. Clean (no warning).
+-- B1: Alias with conditional — simp eliminates the alias (db2 = db),
+-- then recognizes both if-branches are identical (`Database.close db`)
+-- and collapses the entire conditional into a single unconditional close.
+-- The LCNF contains only one `Database.close a.4` call. Clean.
 def aliasKept : IO Unit := do
   let db ← Database.open "test.db"
   let db2 := db
@@ -140,9 +142,11 @@ def borrowThenClose : IO Unit := do
   Database.query db "SELECT 1"
   Database.close db
 
--- B5: Error handling — same resource closed in catch and try branches.
--- Currently warns (false positive) because the analysis doesn't track
--- that try/catch branches are mutually exclusive.
+-- B5: Error handling — try/catch desugars to cases on EST.Out, with
+-- Database.close in both the ok and error alts. Unlike B1, the compiler
+-- can't merge these (different world-state args). The analysis walks
+-- alts sequentially without restoring state, so the second close
+-- appears as use-after-consume. False positive.
 def withErrorHandling : IO Unit := do
   let db ← Database.open "test.db"
   try
