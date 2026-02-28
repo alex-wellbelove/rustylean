@@ -5,6 +5,8 @@ package «unique-check» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
 lean_lib UniqueCheck
+lean_lib UniqueAttr
+lean_lib UniqueAnalysis
 
 @[default_target]
 lean_exe «demo» where

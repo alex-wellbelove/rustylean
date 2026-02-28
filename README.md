@@ -1,6 +1,6 @@
-# UniqueCheck — Runtime Uniqueness Checking for Lean 4
+# UniqueCheck — Uniqueness Checking for Lean 4
 
-Lean 4 has no compile-time uniqueness guarantees. FFI resource handles (sockets, DB connections) can be silently aliased, leading to use-after-free segfaults. UniqueCheck provides a **runtime safety net**: loud errors instead of silent corruption.
+Lean 4 has no compile-time uniqueness guarantees. FFI resource handles (sockets, DB connections) can be silently aliased, leading to use-after-free segfaults. This project provides both **compile-time** and **runtime** defenses against uniqueness violations.
 
 ## The Problem
 
@@ -14,7 +14,29 @@ def bad : IO Unit := do
   Database.close db           -- use-after-free → segfault
 ```
 
-## The Solution
+## Compile-Time Analysis (`UniqueAnalysis`)
+
+Mark types with `@[unique]` and get compile-time warnings when uniqueness is violated:
+
+```lean
+import UniqueAnalysis
+
+@[unique] opaque Database : Type
+@[extern "db_open"] opaque Database.open : String → IO Database
+@[extern "db_close"] opaque Database.close : Database → IO Unit
+
+def bad : IO Unit := do
+  let db ← Database.open "test.db"
+  let db2 := db
+  Database.close db2
+  Database.close db    -- ⚠ use-after-consume: already consumed by Database.close
+```
+
+The analysis works as a native LCNF compiler pass (registered via `@[cpass]`). It runs after the first `simp` pass, when monadic bind has been inlined into flat `cases` on `EST.Out`, and detects when the same variable is passed to a unique-consuming parameter position more than once.
+
+Key design insight: LCNF erases types to `lcAny`, so the pass looks up each callee's **original** type from the environment to determine which parameter positions expect `@[unique]` types.
+
+## Runtime Checking (`UniqueCheck`)
 
 ### `ensureExclusive` — panic if aliased
 
@@ -88,6 +110,17 @@ lake build
   result: sum = 33
 ```
 
+## Architecture
+
+| File | Purpose |
+|---|---|
+| `UniqueAttr.lean` | Registers the `@[unique]` tag attribute |
+| `UniqueAnalysis.lean` | LCNF compiler pass — detects use-after-consume at compile time |
+| `UniqueCheck.lean` | Runtime library — `ensureExclusive`, `withResource` |
+| `ffi/unique_check.c` | C shim for runtime RC check via `b_lean_obj_arg` |
+| `TestUnique.lean` | Compile-time analysis test cases |
+| `Main.lean` | Runtime checking demos |
+
 ## Context
 
-This is the first deliverable in a broader effort toward static uniqueness analysis for Lean 4. See [`problem_statement.md`](problem_statement.md) for the full roadmap, including planned Datalog-based and compiler-plugin approaches.
+See [`problem_statement.md`](problem_statement.md) for the full roadmap.
