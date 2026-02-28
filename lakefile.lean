@@ -7,6 +7,7 @@ package «unique-check» where
 lean_lib UniqueCheck
 lean_lib UniqueAttr
 lean_lib UniqueAnalysis
+@[default_target] lean_lib TestUnique
 
 @[default_target]
 lean_exe «demo» where
