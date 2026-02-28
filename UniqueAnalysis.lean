@@ -21,10 +21,18 @@ open Lean Lean.Compiler.LCNF
 namespace UniqueAnalysis
 
 /-- Check if a type expression directly refers to a @[unique] type name.
-    Only checks the head constant — does not look through type variables. -/
+    Uses `getAppFn'` to see through mdata wrappers (like `@&` borrowed annotations). -/
 def exprMentionsUnique (env : Environment) (type : Expr) : Bool :=
-  match type.getAppFn with
+  match type.getAppFn' with
   | .const name _ => hasUniqueAttr env name
+  | _ => false
+
+/-- Check if a domain type is marked as borrowed (`@&`).
+    Lean 4 represents `@& T` as `mdata {borrowed := true} T`. -/
+def isBorrowed (domType : Expr) : Bool :=
+  match domType with
+  | .mdata md _ => md.entries.any fun (k, v) =>
+    k == `borrowed && match v with | .ofBool true => true | _ => false
   | _ => false
 
 /-- Extract the domain types from a forall/pi type, paired with their positions.
@@ -38,10 +46,11 @@ where
     | _ => acc
 
 /-- For a function with the given original type, return the set of parameter
-    positions (0-indexed) that have @[unique] domain types. -/
+    positions (0-indexed) that have @[unique] domain types AND are NOT borrowed.
+    Borrowed parameters (`@&`) do not consume the value. -/
 def getUniqueParamPositions (env : Environment) (type : Expr) : Array Nat :=
   (extractForallDomains type).filterMap fun (idx, domType) =>
-    if exprMentionsUnique env domType then some idx else none
+    if exprMentionsUnique env domType && !isBorrowed domType then some idx else none
 
 /-- Analysis state: tracks which fvarIds have been consumed (passed as an
     owned argument to a function expecting a @[unique] parameter). -/
